@@ -49,7 +49,7 @@ def alternating_minimization(L_vals, n_r, delta=0.05, tol=1e-6, max_iter=1000):
         E_L = np.dot(rho, L_vals)
         # update λ
         ln_term = math.log(2 * math.sqrt(n_r) / delta)
-        lam_new = 2 / (math.sqrt(2 * n_r * E_L * (KL + ln_term)) + 2)
+        lam_new = 2 / (math.sqrt( 2*n_r*E_L / (KL + ln_term) ) + 1 )
         if abs(lam - lam_new) < tol:
             lam = lam_new
             break
@@ -75,7 +75,7 @@ def main():
 
     # train/test split
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.37, random_state=42)
+        X, y, train_size=200, stratify=y, random_state=42)
     n_train, d = X_train.shape
     n_test = X_test.shape[0]
     r = d + 1
@@ -83,7 +83,7 @@ def main():
 
     # Baseline: CV-tuned RBF SVM
     gamma_seed = compute_gamma_seed(X_train, y_train)
-    gamma_grid = gamma_seed * np.logspace(-4, 4, 9)
+    gamma_grid = gamma_seed * np.power(10.0, [-4, -2, 0, 2, 4])
     C_grid = np.logspace(-3, 3, 7)
     param_grid = {'C': C_grid, 'gamma': gamma_grid}
     t0 = time.time()
@@ -103,7 +103,7 @@ def main():
         # train m weak SVMs on subsets of size r
         for _ in range(m):
             idx = np.random.choice(n_train, size=r, replace=False)
-            clf = SVC(kernel='rbf', C=1e6, gamma=np.random.choice(gamma_grid))
+            clf = SVC(kernel='rbf', C=1, gamma=np.random.choice(gamma_grid))
             clf.fit(X_train[idx], y_train[idx])
             classifiers.append(clf)
             mask = np.ones(n_train, dtype=bool)
@@ -115,7 +115,7 @@ def main():
         rho, lam = alternating_minimization(val_errors, n_r, delta=delta)
         # test error of majority vote
         votes = sum(w * clf.predict(X_test) for w, clf in zip(rho, classifiers))
-        pb_errors.append(np.mean(np.sign(votes) != y_test))
+        pb_errors.append(np.mean((votes > 0).astype(int)*2-1 != y_test))
         # PAC-Bayes-kl bound on randomized classifier
         pi = np.ones(m) / m
         KL = np.sum(rho * np.log(rho / pi))
